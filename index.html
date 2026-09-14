@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+    <title>Vektor Tool 2D - Pro V2</title>
+    <style>
+        html, body { overscroll-behavior: none; }
+        body {
+            margin: 0; overflow: hidden; background-color: #ffffff;
+            font-family: -apple-system, sans-serif; touch-action: none;
+            -webkit-user-select: none; user-select: none;
+            -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+        }
+        button { box-sizing: border-box; }
+
+        /* --- Rechtes Dock (Anzeige + Werkzeuge), nach rechts ein-/ausklappbar --- */
+        #right-dock {
+            position: absolute;
+            right: calc(20px + env(safe-area-inset-right));
+            top: calc(20px + env(safe-area-inset-top));
+            z-index: 100;
+            max-height: calc(100vh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+            overflow-y: auto; -webkit-overflow-scrolling: touch;
+            transition: transform 0.35s cubic-bezier(.4,0,.2,1);
+        }
+        body.panels-collapsed #right-dock { transform: translateX(calc(100% + 80px)); }
+
+        .panel {
+            background: rgba(255,255,255,0.95); padding: 12px; border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15); width: 180px; margin-bottom: 14px;
+        }
+
+        /* Toggle-Griff: mittig direkt links am Menü (wie menue.html) */
+        #panel-toggle {
+            position: absolute; top: 50%; right: 208px; transform: translateY(-50%);
+            z-index: 200; width: 30px; height: 64px;
+            background: rgba(255,255,255,0.95); border: 1px solid #ccc; border-right: none;
+            border-radius: 10px 0 0 10px; box-shadow: -2px 2px 12px rgba(0,0,0,0.12);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 15px; color: #007AFF; cursor: pointer;
+            user-select: none; -webkit-user-select: none; touch-action: manipulation;
+            transition: right 0.35s cubic-bezier(.4,0,.2,1);
+        }
+        body.panels-collapsed #panel-toggle { right: env(safe-area-inset-right); }
+
+        #instruction-toast {
+            display: none; position: fixed; top: calc(20px + env(safe-area-inset-top)); left: 50%;
+            transform: translateX(-50%);
+            background: #007AFF; color: white; padding: 12px 24px; border-radius: 25px;
+            z-index: 1000; font-size: 14px; font-weight: bold;
+        }
+
+        .toggle-btn, .action-btn {
+            display: block; width: 100%; margin-bottom: 6px; padding: 10px;
+            border: 1px solid #ccc; border-radius: 8px; background: #fff;
+            font-size: 12px; cursor: pointer; text-align: left;
+            min-height: 44px; touch-action: manipulation;
+        }
+        .toggle-btn.active, .action-btn.active { background: #e3f2fd; border-color: #007AFF; font-weight: bold; }
+
+        #modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center;
+        }
+        #point-modal { background: white; padding: 20px; border-radius: 15px; width: 220px; text-align: center; }
+        .modal-input { width: 80px; padding: 8px; margin: 10px 5px; border: 1px solid #ccc; border-radius: 6px; }
+
+        .axis-label { font-size: 20px; font-weight: bold; color: #000; pointer-events: none; }
+        .tick-label { font-size: 11px; color: #000; font-weight: bold; pointer-events: none; }
+        .point-label { font-size: 18px; font-weight: bold; color: #00008b; pointer-events: none; }
+
+        /* Weiße Seitennamen mit schwarzem Kontrast-Schatten */
+        .side-label {
+            font-family: "Times New Roman", serif; font-style: italic; font-size: 22px;
+            color: #ffffff; pointer-events: none; background: none !important;
+            text-shadow: 1px 1px 2px #000, -1px -1px 2px #000, 1px -1px 2px #000, -1px 1px 2px #000;
+        }
+
+        /* Koordinaten-Popup mit Papierkorb – pointer-events: auto trotz CSS2D-Layer */
+        .coord-popup {
+            background: rgba(255,255,255,0.97); border: 1px solid #ccc; border-radius: 10px;
+            padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+            display: flex; align-items: center; gap: 8px;
+            font-size: 14px; font-weight: bold; color: #00008b; white-space: nowrap;
+            pointer-events: auto;
+        }
+        .del-btn {
+            width: 36px; height: 36px; border: none; border-radius: 8px;
+            background: #ffe9e7; font-size: 18px; line-height: 1; cursor: pointer;
+            pointer-events: auto; touch-action: manipulation;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .del-btn:active { background: #ffc9c2; }
+
+        #zoom-controls {
+            position: absolute; bottom: calc(30px + env(safe-area-inset-bottom));
+            right: calc(30px + env(safe-area-inset-right));
+            display: flex; flex-direction: column; gap: 12px; z-index: 100;
+        }
+        .control-btn {
+            width: 60px; height: 60px; border-radius: 50%; background: white; border: 2px solid #007AFF;
+            font-size: 30px; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); cursor: pointer; color: #007AFF;
+            touch-action: manipulation;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="instruction-toast">Wähle drei Punkte aus</div>
+
+    <div id="modal-overlay">
+        <div id="point-modal">
+            <h3 style="margin-top:0">Neuer Punkt</h3>
+            <input type="number" id="mod-x1" class="modal-input" placeholder="x₁">
+            <input type="number" id="mod-x2" class="modal-input" placeholder="x₂">
+            <div style="display:flex; gap:10px; margin-top:10px;">
+                <button class="action-btn" style="background:#eee" onclick="closeModal()">Abbrechen</button>
+                <button class="action-btn active" onclick="confirmPointCreation()">Erstellen</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="right-dock">
+        <div id="ui-panel" class="panel">
+            <h3 style="margin:0 0 8px 0; font-size: 11px; text-transform: uppercase; color: #666;">Anzeige</h3>
+            <button class="toggle-btn active" onclick="uiToggle('map', this)">🗺️ Karte</button>
+            <button class="toggle-btn active" onclick="uiToggle('points', this)">🔵 Punkte S &amp; E</button>
+            <button class="toggle-btn active" onclick="uiToggle('grid', this)">🏁 Gitter</button>
+            <button class="toggle-btn" id="btn-gridmode" onclick="uiToggle('gridmode', this)">📏 Modus: 5x5</button>
+        </div>
+
+        <div id="tool-panel" class="panel">
+            <h3 style="margin:0 0 8px 0; font-size: 11px; text-transform: uppercase; color: #666;">Werkzeuge</h3>
+            <button class="action-btn" onclick="openModal()">📍 Neuen Punkt erstellen</button>
+            <button class="action-btn" id="tri-tool-btn" onclick="activateTriangleTool()">📐 Dreieck erstellen</button>
+            <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
+            <button class="action-btn" style="color:#ff3b30; text-align:center" onclick="undo()">↩️ Rückgängig</button>
+        </div>
+    </div>
+    <div id="panel-toggle" onclick="togglePanels()">❯</div>
+
+    <div id="zoom-controls">
+        <div class="control-btn" onclick="zoom(0.7)">+</div>
+        <div class="control-btn" onclick="zoom(1.4)">−</div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+        let scene, camera, renderer, labelRenderer, controls, raycaster;
+        let groundMesh, gridHelper, pointsGroup, trianglesGroup, uiGroup;
+
+        let history = [];
+        let triangleSelection = [];
+        let isTriangleToolActive = false;
+        let pointCounter = 0;
+        let menuWasOpenBeforeFocus = true;
+
+        /* Seiten-Register: verhindert doppelte/falsche Seitennamen.
+           Key = sortiertes Paar der Punkt-IDs einer Strecke (z. B. "E-S").
+           So bleibt die Benennung auch bei mehrfachem Erstellen/Löschen von
+           Punkten und Dreiecken konsistent. */
+        let sideRegistry = new Map();
+
+        /* --- Menü ein-/ausklappen --- */
+        function updateToggleIcon() {
+            document.getElementById('panel-toggle').textContent =
+                document.body.classList.contains('panels-collapsed') ? '❮' : '❯';
+        }
+        function setPanelsCollapsed(state) {
+            document.body.classList.toggle('panels-collapsed', state);
+            updateToggleIcon();
+        }
+        window.togglePanels = () => {
+            document.body.classList.toggle('panels-collapsed');
+            updateToggleIcon();
+        };
+
+        const mapConfig = {
+            sPx: { x: 660, y: 394 }, s2D: { x: 160, y: 330 },
+            ePx: { x: 745, y: 911 }, e2D: { x: 195, y: 85 },
+            imgW: 1380, imgH: 1394, focus: { x: 180, y: 210 }
+        };
+
+        const pointLetters = ['P', 'Q', 'R', 'T', 'U', 'V', 'W'];
+
+        function getNextPointName() {
+            const index = pointCounter % pointLetters.length;
+            const suffix = Math.floor(pointCounter / pointLetters.length);
+            pointCounter++;
+            return suffix === 0 ? pointLetters[index] : `${pointLetters[index]}${suffix}`;
+        }
+
+        window.openModal = () => document.getElementById('modal-overlay').style.display = 'flex';
+        window.closeModal = () => document.getElementById('modal-overlay').style.display = 'none';
+        window.confirmPointCreation = () => {
+            const x1 = parseFloat(document.getElementById('mod-x1').value);
+            const x2 = parseFloat(document.getElementById('mod-x2').value);
+            if (!isNaN(x1) && !isNaN(x2)) {
+                const p = spawnPoint(x1, x2, getNextPointName());
+                history.push({ type: 'addPoint', obj: p });
+            }
+            closeModal();
+        };
+
+        window.uiToggle = (type, btn) => {
+            if (type === 'gridmode') {
+                const divisions = btn.textContent.includes("5x5") ? 110 : 220;
+                const vis = gridHelper.visible;
+                scene.remove(gridHelper);
+                gridHelper = new THREE.GridHelper(1100, divisions, divisions === 110 ? 0x888888 : 0xcccccc, divisions === 110 ? 0xbbbbbb : 0xeeeeee);
+                gridHelper.rotation.x = Math.PI / 2; gridHelper.position.z = -0.05; gridHelper.visible = vis;
+                scene.add(gridHelper);
+                btn.textContent = divisions === 220 ? "📏 Modus: 5x5" : "📏 Modus: 10x10";
+                return;
+            }
+            btn.classList.toggle('active');
+            const isVis = btn.classList.contains('active');
+            if(type === 'map') groundMesh.visible = isVis;
+            if(type === 'grid') gridHelper.visible = isVis;
+            if(type === 'points') {
+                pointsGroup.visible = isVis;
+                pointsGroup.traverse(c => { if(c instanceof CSS2DObject) c.visible = isVis; });
+            }
+        };
+
+        init();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+            const aspect = window.innerWidth / window.innerHeight;
+            const vSize = 280;
+            camera = new THREE.OrthographicCamera(-vSize*aspect, vSize*aspect, vSize, -vSize, 0.1, 2000);
+            camera.position.set(mapConfig.focus.x, mapConfig.focus.y, 500);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            labelRenderer = new CSS2DRenderer();
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.domElement.style.position = 'absolute';
+            labelRenderer.domElement.style.top = '0px';
+            labelRenderer.domElement.style.pointerEvents = 'none';
+            document.body.appendChild(labelRenderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableRotate = false;
+            controls.screenSpacePanning = true;
+            controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY };
+            controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
+            controls.target.set(mapConfig.focus.x, mapConfig.focus.y, 0);
+
+            raycaster = new THREE.Raycaster();
+            pointsGroup = new THREE.Group();
+            trianglesGroup = new THREE.Group();
+            uiGroup = new THREE.Group();
+            scene.add(trianglesGroup, pointsGroup, uiGroup);
+
+            addAxes();
+            addFineGrid();
+            addGroundMap();
+            addReferencePoints();
+
+            /* Tap-Erkennung: nur echte Tipps (Bewegung < 10 px, Dauer < 500 ms)
+               wählen aus / öffnen Popups. Wisch-/Pan-Gesten werden ignoriert. */
+            let tapStart = null;
+            renderer.domElement.addEventListener('pointerdown', (e) => {
+                tapStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+            });
+            renderer.domElement.addEventListener('pointercancel', () => { tapStart = null; });
+            renderer.domElement.addEventListener('pointerup', (e) => {
+                if (!tapStart) return;
+                const dist = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
+                const dur = performance.now() - tapStart.t;
+                tapStart = null;
+                if (dist < 10 && dur < 500) handleTap(e);
+            });
+
+            /* iPad/Safari: System-Pinch-Zoom der Seite unterdrücken */
+            ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev =>
+                document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+
+            window.addEventListener('resize', onResize);
+            window.addEventListener('orientationchange', () => setTimeout(onResize, 300));
+            updateToggleIcon();
+            animate();
+        }
+
+        function addAxes() {
+            const mat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const axes = [{ v: new THREE.Vector3(1,0,0), l: 'x₁', len: 325, start: -15 }, { v: new THREE.Vector3(0,1,0), l: 'x₂', len: 350, start: -15 }];
+            axes.forEach(axis => {
+                const line = new THREE.Mesh(new THREE.PlaneGeometry(axis.v.x ? axis.len-axis.start : 1.2, axis.v.y ? axis.len-axis.start : 1.2), mat);
+                line.position.copy(axis.v.clone().multiplyScalar((axis.len+axis.start)/2));
+                scene.add(line);
+                const shape = new THREE.Shape();
+                shape.moveTo(0, 5); shape.lineTo(3.5, -5); shape.lineTo(-3.5, -5);
+                const head = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+                head.position.copy(axis.v.clone().multiplyScalar(axis.len));
+                if(axis.v.x) head.rotation.z = -Math.PI/2;
+                scene.add(head);
+                const div = document.createElement('div');
+                div.className = 'axis-label'; div.textContent = axis.l;
+                const label = new CSS2DObject(div);
+                label.position.copy(axis.v.clone().multiplyScalar(axis.len + 12.5));
+                scene.add(label);
+                for (let i = -10; i <= axis.len - 15; i += 10) {
+                    if (i === 0) continue;
+                    const tick = new THREE.Mesh(new THREE.PlaneGeometry(axis.v.x ? 0.8 : 5, axis.v.y ? 0.8 : 5), mat);
+                    tick.position.copy(axis.v.clone().multiplyScalar(i));
+                    scene.add(tick);
+                    if (i % 50 === 0) {
+                        const tDiv = document.createElement('div');
+                        tDiv.className = 'tick-label'; tDiv.textContent = i;
+                        const tL = new CSS2DObject(tDiv);
+                        tL.position.copy(axis.v.clone().multiplyScalar(i));
+                        if(axis.v.x) tL.position.y += 15; else tL.position.x += 15;
+                        scene.add(tL);
+                    }
+                }
+            });
+        }
+
+        function spawnPoint(x, y, txt, isRef = false) {
+            const circle = new THREE.Mesh(new THREE.CircleGeometry(2, 32), new THREE.MeshBasicMaterial({ color: 0x00008b }));
+            circle.position.set(x, y, 0.5);
+            circle.userData = { id: txt, isRef: isRef, coords: `(${x}|${y})` };
+            const div = document.createElement('div');
+            div.className = 'point-label'; div.textContent = txt;
+            const label = new CSS2DObject(div);
+            label.position.set(6, 2, 0);
+            circle.add(label);
+            circle.userData.label = label;
+            pointsGroup.add(circle);
+            return circle;
+        }
+
+        window.activateTriangleTool = () => {
+            isTriangleToolActive = !isTriangleToolActive;
+            triangleSelection = [];
+            clearPopups();
+            document.getElementById('tri-tool-btn').classList.toggle('active', isTriangleToolActive);
+            document.getElementById('instruction-toast').style.display = isTriangleToolActive ? 'block' : 'none';
+
+            /* Intelligenter Fokus-Modus: beim Aktivieren Menü einklappen,
+               beim Verlassen (manuell oder nach fertigem Dreieck) den vorherigen
+               Zustand wiederherstellen. */
+            if (isTriangleToolActive) {
+                menuWasOpenBeforeFocus = !document.body.classList.contains('panels-collapsed');
+                setPanelsCollapsed(true);
+            } else {
+                setPanelsCollapsed(!menuWasOpenBeforeFocus);
+            }
+        };
+
+        function createTriangle(pt1, pt2, pt3) {
+            const p1 = pt1.position, p2 = pt2.position, p3 = pt3.position;
+            const group = new THREE.Group();
+            const color = new THREE.Color().setHSL(Math.random(), 0.7, 0.6);
+            const createdSideKeys = [];
+            const createdSides = [];
+
+            const shape = new THREE.Shape();
+            shape.moveTo(p1.x, p1.y); shape.lineTo(p2.x, p2.y); shape.lineTo(p3.x, p3.y);
+            const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide }));
+            mesh.position.z = 0.1; group.add(mesh);
+
+            const edgePoints = [p1, p2, p3, p1];
+            for(let i=0; i<3; i++) {
+                const start = edgePoints[i], end = edgePoints[i+1];
+                const dx = end.x - start.x, dy = end.y - start.y;
+                const line = new THREE.Mesh(new THREE.PlaneGeometry(Math.sqrt(dx*dx + dy*dy), 1.25), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+                line.position.set(start.x + dx/2, start.y + dy/2, 0.15);
+                line.rotation.z = Math.atan2(dy, dx);
+                group.add(line);
+            }
+
+            // Jede Seite wird über das Paar ihrer Endpunkte identifiziert (nicht über
+            // den gegenüberliegenden Punkt). 'z' ist ausschließlich die Strecke S–E.
+            const sides = [
+                { pa: pt2, pb: pt3, opp: pt1 },
+                { pa: pt1, pb: pt3, opp: pt2 },
+                { pa: pt1, pb: pt2, opp: pt3 }
+            ];
+            sides.forEach(s => {
+                const idA = s.pa.userData.id, idB = s.pb.userData.id;
+                const key = [idA, idB].sort().join('-');
+                if (sideRegistry.has(key)) return; // Seite ist bereits benannt (Anti-Redundanz)
+
+                const isSE = (idA === 'S' || idB === 'S') && (idA === 'E' || idB === 'E');
+                const txt = isSE ? 'z' : s.opp.userData.id.toLowerCase();
+
+                const mid = new THREE.Vector3().addVectors(s.pa.position, s.pb.position).multiplyScalar(0.5);
+                const div = document.createElement('div');
+                div.className = 'side-label'; div.textContent = txt;
+                const cssLabel = new CSS2DObject(div);
+                cssLabel.position.set(mid.x, mid.y, 0.3);
+                group.add(cssLabel);
+                const entry = { name: txt, labelObj: cssLabel };
+                sideRegistry.set(key, entry);
+                createdSides.push({ key, entry });
+                createdSideKeys.push(key);
+            });
+
+            const pts = [p1, p2, p3];
+            for(let i=0; i<3; i++) {
+                const A = pts[i], B = pts[(i+1)%3], C = pts[(i+2)%3];
+                const v1 = new THREE.Vector2().subVectors(A, B).normalize();
+                const v2 = new THREE.Vector2().subVectors(C, B).normalize();
+                if(Math.abs(v1.dot(v2)) < 0.05) {
+                    const size = 14;
+                    const a1 = Math.atan2(v1.y, v1.x), a2 = Math.atan2(v2.y, v2.x);
+                    let diff = a2 - a1;
+                    while (diff < -Math.PI) diff += 2 * Math.PI;
+                    while (diff > Math.PI) diff -= 2 * Math.PI;
+                    const arcShape = new THREE.Shape();
+                    arcShape.moveTo(0,0);
+                    arcShape.absarc(0,0, size, a1, a1 + diff, diff < 0);
+                    const arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(arcShape.getPoints(20)), new THREE.LineBasicMaterial({color: 0, linewidth: 3}));
+                    const midAngle = a1 + diff/2;
+                    const dot = new THREE.Mesh(new THREE.CircleGeometry(1.2, 16), new THREE.MeshBasicMaterial({color: 0}));
+                    dot.position.set(Math.cos(midAngle)*size*0.65, Math.sin(midAngle)*size*0.65, 0);
+                    const g = new THREE.Group(); g.add(arc, dot); g.position.set(B.x, B.y, 0.2); group.add(g);
+                }
+            }
+            group.userData = { pts: [pt1, pt2, pt3], sideKeys: createdSideKeys, sides: createdSides };
+            trianglesGroup.add(group);
+            history.push({ type: 'addTri', obj: group, sideKeys: createdSideKeys });
+        }
+
+        /* --- Popups & Löschen --- */
+        function clearPopups() {
+            pointsGroup.children.forEach(p => {
+                if (p.userData.popup) {
+                    p.remove(p.userData.popup);
+                    if (p.userData.popup.element) p.userData.popup.element.remove();
+                    p.userData.popup = null;
+                }
+            });
+        }
+
+        function showPopup(p) {
+            const div = document.createElement('div');
+            div.className = 'coord-popup';
+            const span = document.createElement('span');
+            span.textContent = p.userData.coords;
+            div.appendChild(span);
+            if (!p.userData.isRef) {   // S und E sind fest eingezeichnet und nicht löschbar
+                const del = document.createElement('button');
+                del.className = 'del-btn';
+                del.innerHTML = '🗑️';
+                del.addEventListener('click', (ev) => { ev.stopPropagation(); deletePoint(p); });
+                div.appendChild(del);
+            }
+            const popup = new CSS2DObject(div);
+            popup.position.set(0, -12, 0);
+            p.add(popup);
+            p.userData.popup = popup;
+        }
+
+        // CSS2D-Beschriftungen eines (aus dem Szenengraph gelösten) Dreiecks ein-/ausblenden
+        function setTriangleHidden(g, hidden) {
+            g.traverse(c => { if (c instanceof CSS2DObject && c.element) c.element.style.display = hidden ? 'none' : ''; });
+        }
+
+        function deletePoint(p) {
+            clearPopups();
+
+            // Alle Dreiecke, die diesen Punkt als Eckpunkt haben, komplett entfernen
+            // (Fläche, Kanten, Winkelsymbol UND Seitenbeschriftungen).
+            const affected = trianglesGroup.children.filter(g => g.userData.pts && g.userData.pts.includes(p));
+            affected.forEach(g => {
+                trianglesGroup.remove(g);
+                setTriangleHidden(g, true);
+                (g.userData.sideKeys || []).forEach(k => sideRegistry.delete(k));
+            });
+
+            pointsGroup.remove(p);
+            if (p.userData.label && p.userData.label.element) p.userData.label.element.style.display = 'none';
+            history.push({ type: 'del', obj: p, triangles: affected });
+        }
+
+        function handleTap(e) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mouseVec = new THREE.Vector2(
+                ((e.clientX - rect.left) / rect.width) * 2 - 1,
+                -((e.clientY - rect.top) / rect.height) * 2 + 1
+            );
+            raycaster.setFromCamera(mouseVec, camera);
+            const intersects = raycaster.intersectObjects(pointsGroup.children.filter(p => p.visible));
+            const hit = intersects.length > 0 ? intersects[0].object : null;
+
+            if (isTriangleToolActive) {
+                // Während des Dreieck-Tools: nur Treffer auf Punkte lösen Aktionen aus
+                if (!hit) return;
+                if (triangleSelection.includes(hit)) return;
+                triangleSelection.push(hit);
+                hit.material.color.set(0x007AFF);
+                if (triangleSelection.length === 3) {
+                    createTriangle(triangleSelection[0], triangleSelection[1], triangleSelection[2]);
+                    triangleSelection.forEach(pt => pt.material.color.set(0x00008b));
+                    activateTriangleTool(); // Fokus-Modus verlassen, Menü zurückholen
+                }
+                return;
+            }
+
+            const hadPopup = hit && hit.userData.popup;
+            clearPopups();
+            if (!hit) return;               // Klick ins Leere schließt nur das Popup
+            if (hadPopup) return;           // erneuter Tap auf denselben Punkt -> schließen
+            showPopup(hit);
+        }
+
+        window.undo = () => {
+            const h = history.pop(); if(!h) return;
+            if(h.type==='addPoint') {
+                clearPopups();
+                pointsGroup.remove(h.obj);
+                h.obj.traverse(c => { if(c instanceof CSS2DObject) c.element.remove(); });
+                pointCounter = Math.max(0, pointCounter - 1);
+            }
+            if(h.type==='del') {
+                pointsGroup.add(h.obj);
+                if (h.obj.userData.label && h.obj.userData.label.element) h.obj.userData.label.element.style.display = '';
+                // Mitgelöschte Dreiecke samt Seitenbeschriftungen wiederherstellen
+                (h.triangles || []).forEach(g => {
+                    trianglesGroup.add(g);
+                    setTriangleHidden(g, false);
+                    (g.userData.sides || []).forEach(({ key, entry }) => sideRegistry.set(key, entry));
+                });
+            }
+            if(h.type==='addTri') {
+                trianglesGroup.remove(h.obj);
+                h.obj.traverse(c => { if(c instanceof CSS2DObject) c.element.remove(); });
+                // Nur die von diesem Dreieck vergebenen Seitennamen wieder freigeben
+                (h.sideKeys || []).forEach(k => sideRegistry.delete(k));
+            }
+        };
+
+        function addFineGrid() {
+            gridHelper = new THREE.GridHelper(1100, 220, 0xcccccc, 0xeeeeee);
+            gridHelper.rotation.x = Math.PI / 2; gridHelper.position.z = -0.1; scene.add(gridHelper);
+        }
+
+        function addReferencePoints() {
+            spawnPoint(mapConfig.s2D.x, mapConfig.s2D.y, 'S', true);
+            spawnPoint(mapConfig.e2D.x, mapConfig.e2D.y, 'E', true);
+        }
+
+        function addGroundMap() {
+            new THREE.TextureLoader().load('karte.png', (texture) => {
+                const d3d = Math.sqrt(Math.pow(195-160,2) + Math.pow(85-330,2));
+                const dPx = Math.sqrt(Math.pow(745-660,2) + Math.pow(911-394,2));
+                const scale = d3d / dPx;
+                groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(1380 * scale, 1394 * scale), new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.85 }));
+                groundMesh.rotation.z = Math.atan2(85-330, 195-160) - Math.atan2(-(911-394), 745-660);
+                const lVect = new THREE.Vector2((660-1380/2)*scale, (1394/2-394)*scale).rotateAround(new THREE.Vector2(0,0), groundMesh.rotation.z);
+                groundMesh.position.set(160 - lVect.x, 330 - lVect.y, -0.5);
+                scene.add(groundMesh);
+            });
+        }
+
+        window.zoom = (f) => { camera.zoom /= f; camera.updateProjectionMatrix(); };
+        function onResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const vSize = 280;
+            camera.left = -vSize*aspect; camera.right = vSize*aspect;
+            camera.top = vSize; camera.bottom = -vSize;
+            camera.updateProjectionMatrix();
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); labelRenderer.render(scene, camera); }
+    </script>
+</body>
+</html>
