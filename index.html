@@ -7,7 +7,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="format-detection" content="telephone=no">
-    <title>Vektor Tool 2D - Pro V2</title>
+    <title>Vektor Tool 2D - Pro V7 (ohne Hilfe)</title>
     <style>
         html, body { overscroll-behavior: none; }
         body {
@@ -72,7 +72,13 @@
 
         .axis-label { font-size: 20px; font-weight: bold; color: #000; pointer-events: none; }
         .tick-label { font-size: 11px; color: #000; font-weight: bold; pointer-events: none; }
-        .point-label { font-size: 18px; font-weight: bold; color: #00008b; pointer-events: none; }
+
+        /* Punktbeschriftung: exakt dieselbe Farbe wie die Punkte selbst (Darkred),
+           mit weißer Kontur (2.1px) für Lesbarkeit auf jedem Kartenuntergrund. */
+        .point-label {
+            font-size: 18px; font-weight: bold; color: #8b0000; pointer-events: none;
+            -webkit-text-stroke: 2.1px #fff; paint-order: stroke fill;
+        }
 
         /* Weiße Seitennamen mit schwarzem Kontrast-Schatten */
         .side-label {
@@ -86,7 +92,7 @@
             background: rgba(255,255,255,0.97); border: 1px solid #ccc; border-radius: 10px;
             padding: 8px 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.28);
             display: flex; align-items: center; gap: 8px;
-            font-size: 14px; font-weight: bold; color: #00008b; white-space: nowrap;
+            font-size: 14px; font-weight: bold; color: #8b0000; white-space: nowrap;
             pointer-events: auto;
         }
         .del-btn {
@@ -108,6 +114,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); cursor: pointer; color: #007AFF;
             touch-action: manipulation;
         }
+
     </style>
 </head>
 <body>
@@ -132,12 +139,12 @@
             <button class="toggle-btn active" onclick="uiToggle('map', this)">🗺️ Karte</button>
             <button class="toggle-btn active" onclick="uiToggle('points', this)">🔵 Punkte S &amp; E</button>
             <button class="toggle-btn active" onclick="uiToggle('grid', this)">🏁 Gitter</button>
-            <button class="toggle-btn" id="btn-gridmode" onclick="uiToggle('gridmode', this)">📏 Modus: 5x5</button>
+            <button class="toggle-btn" id="btn-gridmode" onclick="uiToggle('gridmode', this)">📏 Modus: 10x10</button>
         </div>
 
         <div id="tool-panel" class="panel">
             <h3 style="margin:0 0 8px 0; font-size: 11px; text-transform: uppercase; color: #666;">Werkzeuge</h3>
-            <button class="action-btn" onclick="openModal()">📍 Neuen Punkt erstellen</button>
+            <button class="action-btn" onclick="openModal()">➕ Punkt erstellen</button>
             <button class="action-btn" id="tri-tool-btn" onclick="activateTriangleTool()">📐 Dreieck erstellen</button>
             <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
             <button class="action-btn" style="color:#ff3b30; text-align:center" onclick="undo()">↩️ Rückgängig</button>
@@ -173,11 +180,30 @@
         let pointCounter = 0;
         let menuWasOpenBeforeFocus = true;
 
+        // Gitterfarbe hängt davon ab, ob die Karte sichtbar ist: auf der (helleren)
+        // Karte reicht ein helles Gitter, auf weißem Hintergrund wäre dasselbe
+        // Gitter kaum zu erkennen -> dann dunklere Farbtöne verwenden.
+        let mapVisible = true;
+        let currentGridDivisions = 110; // Start: 10x10-Modus
+        const GRID_COLORS_ON_MAP    = [0xcccccc, 0xeeeeee];
+        const GRID_COLORS_NO_MAP    = [0x888888, 0xbbbbbb];
+
+        // Punktfarben: Darkred statt Dunkelblau (R/B-Kanal gespiegelt, damit die
+        // Helligkeit exakt vergleichbar bleibt) + kräftiges Hellrot als Auswahl-Highlight.
+        const POINT_COLOR = 0x8b0000;
+        const POINT_COLOR_SELECTED = 0xff4444;
+
         /* Seiten-Register: verhindert doppelte/falsche Seitennamen.
            Key = sortiertes Paar der Punkt-IDs einer Strecke (z. B. "E-S").
            So bleibt die Benennung auch bei mehrfachem Erstellen/Löschen von
            Punkten und Dreiecken konsistent. */
         let sideRegistry = new Map();
+
+        // Achsen-Zahlen: Basisposition (auf der Achse) + Info, ob sie zur x₁- oder
+        // x₂-Achse gehören. Der Versatz zur Achse wird pro Frame je nach Zoomstufe
+        // neu berechnet (siehe updateTickLabelOffsets).
+        let tickLabels = [];
+        const TICK_LABEL_OFFSET = 15;
 
         /* --- Menü ein-/ausklappen --- */
         function updateToggleIcon() {
@@ -195,7 +221,7 @@
 
         const mapConfig = {
             sPx: { x: 660, y: 394 }, s2D: { x: 160, y: 330 },
-            ePx: { x: 745, y: 911 }, e2D: { x: 195, y: 85 },
+            ePx: { x: 745, y: 911 }, e2D: { x: 200, y: 80 },
             imgW: 1380, imgH: 1394, focus: { x: 180, y: 210 }
         };
 
@@ -223,17 +249,20 @@
         window.uiToggle = (type, btn) => {
             if (type === 'gridmode') {
                 const divisions = btn.textContent.includes("5x5") ? 110 : 220;
-                const vis = gridHelper.visible;
-                scene.remove(gridHelper);
-                gridHelper = new THREE.GridHelper(1100, divisions, divisions === 110 ? 0x888888 : 0xcccccc, divisions === 110 ? 0xbbbbbb : 0xeeeeee);
-                gridHelper.rotation.x = Math.PI / 2; gridHelper.position.z = -0.05; gridHelper.visible = vis;
-                scene.add(gridHelper);
+                currentGridDivisions = divisions;
+                rebuildGrid();
                 btn.textContent = divisions === 220 ? "📏 Modus: 5x5" : "📏 Modus: 10x10";
                 return;
             }
             btn.classList.toggle('active');
             const isVis = btn.classList.contains('active');
-            if(type === 'map') groundMesh.visible = isVis;
+            if(type === 'map') {
+                groundMesh.visible = isVis;
+                // Ohne Karte ist der weiße Hintergrund heller als die Kartenfläche –
+                // damit das Gitter dort trotzdem gut sichtbar bleibt, dunkler einfärben.
+                mapVisible = isVis;
+                rebuildGrid();
+            }
             if(type === 'grid') gridHelper.visible = isVis;
             if(type === 'points') {
                 pointsGroup.visible = isVis;
@@ -329,20 +358,25 @@
                     const tick = new THREE.Mesh(new THREE.PlaneGeometry(axis.v.x ? 0.8 : 5, axis.v.y ? 0.8 : 5), mat);
                     tick.position.copy(axis.v.clone().multiplyScalar(i));
                     scene.add(tick);
-                    if (i % 50 === 0) {
+                    // Zahlen an jedem 20er-Schritt (10er-Ticks blieben zu dicht am Ursprung)
+                    if (i % 20 === 0) {
                         const tDiv = document.createElement('div');
                         tDiv.className = 'tick-label'; tDiv.textContent = i;
                         const tL = new CSS2DObject(tDiv);
-                        tL.position.copy(axis.v.clone().multiplyScalar(i));
-                        if(axis.v.x) tL.position.y += 15; else tL.position.x += 15;
+                        const base = axis.v.clone().multiplyScalar(i);
+                        tL.position.copy(base);
                         scene.add(tL);
+                        // Abstand zur Achse in Weltkoordinaten – wird pro Frame an den
+                        // Zoom angepasst, damit die Zahlen beim Ranzoomen näher an die
+                        // Ticks rücken statt optisch weiter wegzudriften.
+                        tickLabels.push({ obj: tL, base, isXAxis: !!axis.v.x });
                     }
                 }
             });
         }
 
         function spawnPoint(x, y, txt, isRef = false) {
-            const circle = new THREE.Mesh(new THREE.CircleGeometry(2, 32), new THREE.MeshBasicMaterial({ color: 0x00008b }));
+            const circle = new THREE.Mesh(new THREE.CircleGeometry(2, 32), new THREE.MeshBasicMaterial({ color: POINT_COLOR }));
             circle.position.set(x, y, 0.5);
             circle.userData = { id: txt, isRef: isRef, coords: `(${x}|${y})` };
             const div = document.createElement('div');
@@ -515,10 +549,10 @@
                 if (!hit) return;
                 if (triangleSelection.includes(hit)) return;
                 triangleSelection.push(hit);
-                hit.material.color.set(0x007AFF);
+                hit.material.color.set(POINT_COLOR_SELECTED);
                 if (triangleSelection.length === 3) {
                     createTriangle(triangleSelection[0], triangleSelection[1], triangleSelection[2]);
-                    triangleSelection.forEach(pt => pt.material.color.set(0x00008b));
+                    triangleSelection.forEach(pt => pt.material.color.set(POINT_COLOR));
                     activateTriangleTool(); // Fokus-Modus verlassen, Menü zurückholen
                 }
                 return;
@@ -557,9 +591,21 @@
             }
         };
 
+        // Baut das Gitter neu auf (Divisionen + Farbe je nach Karten-Sichtbarkeit),
+        // ohne die aktuelle Sichtbarkeit (an/aus) zu verändern.
+        function rebuildGrid() {
+            const vis = gridHelper ? gridHelper.visible : true;
+            if (gridHelper) scene.remove(gridHelper);
+            const [major, minor] = mapVisible ? GRID_COLORS_ON_MAP : GRID_COLORS_NO_MAP;
+            gridHelper = new THREE.GridHelper(1100, currentGridDivisions, major, minor);
+            gridHelper.rotation.x = Math.PI / 2; gridHelper.position.z = -0.1;
+            gridHelper.visible = vis;
+            scene.add(gridHelper);
+        }
+
         function addFineGrid() {
-            gridHelper = new THREE.GridHelper(1100, 220, 0xcccccc, 0xeeeeee);
-            gridHelper.rotation.x = Math.PI / 2; gridHelper.position.z = -0.1; scene.add(gridHelper);
+            // Standardmäßig 10x10-Modus (110 Divisionen = 10 Einheiten pro Zelle)
+            rebuildGrid();
         }
 
         function addReferencePoints() {
@@ -569,13 +615,17 @@
 
         function addGroundMap() {
             new THREE.TextureLoader().load('karte.png', (texture) => {
-                const d3d = Math.sqrt(Math.pow(195-160,2) + Math.pow(85-330,2));
-                const dPx = Math.sqrt(Math.pow(745-660,2) + Math.pow(911-394,2));
+                const { x: sx, y: sy } = mapConfig.s2D;
+                const { x: ex, y: ey } = mapConfig.e2D;
+                const { x: spx, y: spy } = mapConfig.sPx;
+                const { x: epx, y: epy } = mapConfig.ePx;
+                const d3d = Math.sqrt(Math.pow(ex-sx,2) + Math.pow(ey-sy,2));
+                const dPx = Math.sqrt(Math.pow(epx-spx,2) + Math.pow(epy-spy,2));
                 const scale = d3d / dPx;
-                groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(1380 * scale, 1394 * scale), new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.85 }));
-                groundMesh.rotation.z = Math.atan2(85-330, 195-160) - Math.atan2(-(911-394), 745-660);
-                const lVect = new THREE.Vector2((660-1380/2)*scale, (1394/2-394)*scale).rotateAround(new THREE.Vector2(0,0), groundMesh.rotation.z);
-                groundMesh.position.set(160 - lVect.x, 330 - lVect.y, -0.5);
+                groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(mapConfig.imgW * scale, mapConfig.imgH * scale), new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.85 }));
+                groundMesh.rotation.z = Math.atan2(ey-sy, ex-sx) - Math.atan2(-(epy-spy), epx-spx);
+                const lVect = new THREE.Vector2((spx-mapConfig.imgW/2)*scale, (mapConfig.imgH/2-spy)*scale).rotateAround(new THREE.Vector2(0,0), groundMesh.rotation.z);
+                groundMesh.position.set(sx - lVect.x, sy - lVect.y, -0.5);
                 scene.add(groundMesh);
             });
         }
@@ -591,7 +641,17 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             labelRenderer.setSize(window.innerWidth, window.innerHeight);
         }
-        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); labelRenderer.render(scene, camera); }
+        function updateTickLabelOffsets() {
+            // Bei OrthographicCamera vergrößert steigender zoom die Darstellung,
+            // ein fester Weltraum-Versatz würde also beim Ranzoomen optisch
+            // größer wirken. Deshalb Versatz umgekehrt proportional zum Zoom.
+            const off = TICK_LABEL_OFFSET / camera.zoom;
+            tickLabels.forEach(t => {
+                if (t.isXAxis) t.obj.position.set(t.base.x, t.base.y + off, t.base.z);
+                else t.obj.position.set(t.base.x + off, t.base.y, t.base.z);
+            });
+        }
+        function animate() { requestAnimationFrame(animate); controls.update(); updateTickLabelOffsets(); renderer.render(scene, camera); labelRenderer.render(scene, camera); }
     </script>
 </body>
 </html>
