@@ -7,7 +7,10 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="format-detection" content="telephone=no">
-    <title>Vektor Tool 2D - Pro V7 (ohne Hilfe)</title>
+    <title>Vektor Tool 2D - Pro V9</title>
+    <!-- KaTeX: rendert die LaTeX-Formel in Hinweis 5 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
     <style>
         html, body { overscroll-behavior: none; }
         body {
@@ -18,7 +21,7 @@
         }
         button { box-sizing: border-box; }
 
-        /* --- Rechtes Dock (Anzeige + Werkzeuge), nach rechts ein-/ausklappbar --- */
+        /* --- Rechtes Dock (Anzeige + Werkzeuge + Hilfebereich), nach rechts ein-/ausklappbar --- */
         #right-dock {
             position: absolute;
             right: calc(20px + env(safe-area-inset-right));
@@ -67,8 +70,20 @@
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center;
         }
-        #point-modal { background: white; padding: 20px; border-radius: 15px; width: 220px; text-align: center; }
-        .modal-input { width: 80px; padding: 8px; margin: 10px 5px; border: 1px solid #ccc; border-radius: 6px; }
+        #point-modal { background: white; padding: 20px; border-radius: 15px; width: 300px; max-width: 90vw; box-sizing: border-box; text-align: center; }
+
+        /* Koordinaten-Eingabe horizontal als ( x₁ | x₂ ) */
+        .coord-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 16px 0; }
+        .coord-paren { font-size: 34px; line-height: 1; color: #333; }
+        .coord-sep { font-size: 28px; line-height: 1; color: #999; }
+        .modal-input {
+            width: 72px; padding: 10px 6px; border: 1px solid #ccc; border-radius: 6px;
+            font-size: 16px; text-align: center; box-sizing: border-box;
+            -webkit-user-select: text; user-select: text;
+        }
+        .modal-input::placeholder { color: #aaa; }
+        /* Grauer Platzhalter (x₁, x₂) verschwindet, sobald ins Feld getippt wird */
+        .modal-input:focus::placeholder { color: transparent; }
 
         .axis-label { font-size: 20px; font-weight: bold; color: #000; pointer-events: none; }
         .tick-label { font-size: 11px; color: #000; font-weight: bold; pointer-events: none; }
@@ -115,6 +130,97 @@
             touch-action: manipulation;
         }
 
+        /* --- Hilfebereich: Overlay mit Flip-Karten (Prinzip wie helpdesk.html) --- */
+        #help-overlay {
+            display: none; position: fixed; inset: 0; z-index: 2000;
+            background: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+            box-sizing: border-box;
+            padding: calc(20px + env(safe-area-inset-top)) calc(20px + env(safe-area-inset-right))
+                      calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left));
+        }
+        #help-overlay.active { display: flex; }
+        .help-modal {
+            background: #f4f7f9; border-radius: 16px; width: min(600px, 92vw);
+            max-height: 85vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+            padding: 20px; box-sizing: border-box;
+        }
+        .help-modal h2 { margin: 0 0 14px 0; font-size: 16px; color: #003366; text-align: center; }
+        .help-close-btn {
+            background: #6c757d; color: white; border: none; padding: 10px 18px; border-radius: 8px;
+            cursor: pointer; margin-bottom: 16px; font-weight: bold; touch-action: manipulation;
+            min-height: 44px;
+        }
+        .help-close-btn:hover { background: #5a6268; }
+
+        .help-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px;
+        }
+        .help-card-container { perspective: 1000px; height: 190px; touch-action: manipulation; }
+        .help-card {
+            width: 100%; height: 100%; position: relative; transform-style: preserve-3d;
+            transition: transform 0.6s cubic-bezier(0.4, 0.05, 0.2, 1); cursor: pointer;
+            touch-action: manipulation;
+        }
+        .help-card:hover { transform: scale(1.02); }
+        .help-card.flipped { transform: rotateY(180deg); }
+        .help-card.flipped:hover { transform: rotateY(180deg) scale(1.02); }
+        .help-card-face {
+            position: absolute; inset: 0; backface-visibility: hidden; border-radius: 12px;
+            border: 1px solid #ddd; box-shadow: 0 4px 10px rgba(0,0,0,0.08); box-sizing: border-box;
+            padding: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; background: white;
+        }
+        .help-card-front .help-icon { font-size: 2em; margin-bottom: 6px; }
+        .help-card-front .help-title { font-weight: bold; font-size: 0.88em; color: #333; }
+        .help-card-back {
+            transform: rotateY(180deg); border: 2px solid #007AFF; overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            align-items: flex-start; justify-content: flex-start; text-align: left;
+            font-size: 0.82em; line-height: 1.45; color: #333;
+        }
+        .help-card-back p { margin: 0; }
+        .help-formula { margin-top: 10px; width: 100%; text-align: center; font-size: 1.05em; white-space: nowrap; }
+
+        /* Hinweis 5 (LaTeX-Formel): Karte verdoppelt beim Umklappen ihre Breite,
+           damit die Formel in einer Zeile passt. */
+        .help-card-container.help-card-container-wide { grid-column: span 2; }
+
+        /* Orangener "Tipp im Tool anwenden"-Button, erscheint mittig unten in der
+           Karte, nachdem der Hinweis eine Weile aufgedeckt war. 44px Mindesthöhe
+           als Touch-Target (Apple-Empfehlung). */
+        .help-apply-btn {
+            margin-top: auto; align-self: center; background: #ff9500; color: white; border: none;
+            border-radius: 8px; padding: 10px 14px; font-size: 0.78em; font-weight: bold;
+            cursor: pointer; touch-action: manipulation; min-height: 44px;
+        }
+        .help-apply-btn:active { background: #e68a00; }
+
+        /* Rückmeldung nach Klick auf "Tipp im Tool anwenden" */
+        .help-feedback {
+            display: none; background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7;
+            border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 0.85em;
+            font-weight: bold; text-align: center;
+        }
+        .help-feedback.info { background: #fff3cd; color: #856404; border-color: #ffe69c; }
+        .help-feedback.show { display: block; }
+
+        /* Gesperrte Hinweis-Karten + Timer + Entsperr-Animation (Prinzip wie helpdesk.html) */
+        .help-timer { font-size: 0.75em; color: #d9534f; margin-top: 8px; font-weight: bold; transition: color 0.3s ease; }
+        .help-timer.ready { color: #28a745; }
+        .help-card.locked { opacity: 0.55; pointer-events: none; filter: grayscale(15%); }
+        .help-card-front .help-icon { transition: transform 0.4s ease; }
+        .help-card.locked .help-card-front .help-icon { animation: helpLockPulse 2.4s ease-in-out infinite; }
+        @keyframes helpLockPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+        }
+        @keyframes helpUnlockPop {
+            0% { transform: scale(0.7) rotate(-8deg); opacity: 0; }
+            60% { transform: scale(1.15) rotate(4deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        .help-icon.pop { animation: helpUnlockPop 0.5s ease; }
+        .placeholder-note { color: #999; font-style: italic; }
     </style>
 </head>
 <body>
@@ -124,12 +230,26 @@
     <div id="modal-overlay">
         <div id="point-modal">
             <h3 style="margin-top:0">Neuer Punkt</h3>
-            <input type="number" id="mod-x1" class="modal-input" placeholder="x₁">
-            <input type="number" id="mod-x2" class="modal-input" placeholder="x₂">
+            <div class="coord-row">
+                <span class="coord-paren">(</span>
+                <input type="number" id="mod-x1" class="modal-input" placeholder="x₁">
+                <span class="coord-sep">|</span>
+                <input type="number" id="mod-x2" class="modal-input" placeholder="x₂">
+                <span class="coord-paren">)</span>
+            </div>
             <div style="display:flex; gap:10px; margin-top:10px;">
                 <button class="action-btn" style="background:#eee" onclick="closeModal()">Abbrechen</button>
                 <button class="action-btn active" onclick="confirmPointCreation()">Erstellen</button>
             </div>
+        </div>
+    </div>
+
+    <div id="help-overlay">
+        <div class="help-modal">
+            <button class="help-close-btn" onclick="closeHelp()">✕ Schließen</button>
+            <h2>Hinweise</h2>
+            <div class="help-feedback" id="help-feedback"></div>
+            <div class="help-grid" id="help-grid"></div>
         </div>
     </div>
 
@@ -148,6 +268,11 @@
             <button class="action-btn" id="tri-tool-btn" onclick="activateTriangleTool()">📐 Dreieck erstellen</button>
             <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
             <button class="action-btn" style="color:#ff3b30; text-align:center" onclick="undo()">↩️ Rückgängig</button>
+        </div>
+
+        <div id="help-panel" class="panel">
+            <h3 style="margin:0 0 8px 0; font-size: 11px; text-transform: uppercase; color: #666;">Hilfebereich</h3>
+            <button class="action-btn" onclick="openHelp()">❓ Hinweise</button>
         </div>
     </div>
     <div id="panel-toggle" onclick="togglePanels()">❯</div>
@@ -218,6 +343,236 @@
             document.body.classList.toggle('panels-collapsed');
             updateToggleIcon();
         };
+
+        /* --- Hilfebereich: stufenweise Hinweise (Prinzip wie helpdesk.html) ---
+           Hinweis 1 ist von Anfang an nutzbar. Wird eine Karte umgeklappt, startet
+           ein Countdown, nach dessen Ablauf der nächste Hinweis entsperrt wird.
+           Bei Hinweis 1 & 2 erscheint zusätzlich nach einer Aufdeckzeit ein Button,
+           der den Tipp direkt im Tool anwendet (siehe applyHint1/applyHint2). */
+        const HINT_WAIT_SECONDS = 20;         // Wartezeit bis zum Entsperren des nächsten Hinweises
+        const HINT_APPLY_REVEAL_SECONDS = HINT_WAIT_SECONDS; // Aufdeckzeit, bis der "Tipp im Tool anwenden"-Button erscheint (gleich lang wie die Sperre des nächsten Hinweises)
+        const HINT_APPLY_RESET_SECONDS = 30;  // Neue Wartezeit für den nächsten gesperrten Hinweis nach Klick auf den Button
+
+        const hintsData = [
+            { text: 'Ergänzt die beiden Punkte S und E zu einem Dreieck, das euch weiterhelfen könnte.' },
+            { text: 'Überlegt, warum euch ein rechtwinkliges Dreieck weiterhelfen wird.' },
+            { text: 'In rechtwinkligen Dreiecken gilt der Satz des Pythagoras.' },
+            { text: 'Um den Satz des Pythagoras anzuwenden, benötigt ihr die Information über mindestens zwei Seiten des Dreiecks.<br><br>1. Identifiziert also die Seiten eures Dreiecks: Wo liegen die Katheten, wo die Hypotenuse?<br>2. Welche Längen sind bekannt oder können berechnet bzw. abgelesen werden, welche ist gesucht?' },
+            { text: 'Berechnet die Länge des Vektors schließlich mithilfe des Satzes des Pythagoras:', formula: '\\sqrt{\\text{Kathete}_1^{\\,2}+\\text{Kathete}_2^{\\,2}} = \\text{Hypotenuse}' }
+        ];
+        const hintState = {
+            flipped: hintsData.map(() => false),
+            timeLeft: hintsData.map(() => 0),
+            locked: hintsData.map((_, i) => i !== 0), // nur Hinweis 1 ist initial entsperrt
+            intervalId: hintsData.map(() => null),
+            applyReady: hintsData.map(() => false),   // "Tipp im Tool anwenden"-Button sichtbar?
+            wide: hintsData.map(() => false)          // Karte auf doppelte Breite vergrößert (Hinweis 5)
+        };
+
+        // Nur Hinweis 1 (Index 0) und Hinweis 2 (Index 1) besitzen eine Tool-Aktion.
+        const hintActions = { 0: applyHint1, 1: applyHint2 };
+
+        function buildApplyButtonHtml(i) {
+            return `<button class="help-apply-btn" onclick="event.stopPropagation(); applyToolHint(${i})">Tipp im Tool anwenden</button>`;
+        }
+
+        function renderHintCards() {
+            const grid = document.getElementById('help-grid');
+            grid.innerHTML = hintsData.map((h, i) => {
+                const isFlipped = hintState.flipped[i];
+                const isLocked = hintState.locked[i];
+                const currentTimer = hintState.timeLeft[i];
+                const icon = isLocked ? '🔒' : (isFlipped ? '✅' : '💡');
+                const timerText = currentTimer > 0 ? `Warten: ${currentTimer}s` : (isLocked ? 'Gesperrt' : '');
+                const formulaHtml = h.formula ? `<div class="help-formula" id="help-formula-${i}"></div>` : '';
+                const applyBtnHtml = (hintActions[i] && hintState.applyReady[i]) ? buildApplyButtonHtml(i) : '';
+                const wideClass = hintState.wide[i] ? ' help-card-container-wide' : '';
+                return `
+                    <div class="help-card-container${wideClass}" id="help-card-container-${i}">
+                        <div class="help-card ${isFlipped ? 'flipped' : ''} ${isLocked ? 'locked' : ''}" id="help-card-${i}" onclick="flipHintCard(${i})">
+                            <div class="help-card-face help-card-front">
+                                <div class="help-icon">${icon}</div>
+                                <div class="help-title">Hinweis ${i + 1}</div>
+                                <div class="help-timer" id="help-timer-${i}">${timerText}</div>
+                            </div>
+                            <div class="help-card-face help-card-back"><p>${h.text}</p>${formulaHtml}${applyBtnHtml}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // LaTeX-Formeln (aktuell nur Hinweis 5) per KaTeX rendern
+            hintsData.forEach((h, i) => {
+                if (!h.formula) return;
+                const el = document.getElementById(`help-formula-${i}`);
+                if (el && window.katex) katex.render(h.formula, el, { throwOnError: false });
+            });
+        }
+
+        window.openHelp = () => {
+            renderHintCards();
+            document.getElementById('help-overlay').classList.add('active');
+        };
+        window.closeHelp = () => document.getElementById('help-overlay').classList.remove('active');
+
+        window.flipHintCard = (i) => {
+            if (hintState.locked[i] || hintState.flipped[i]) return;
+            hintState.flipped[i] = true;
+            document.getElementById(`help-card-${i}`).classList.add('flipped');
+
+            // Hinweis 5 (LaTeX-Formel): Karte beim Umklappen verdoppeln, damit die
+            // Formel in einer Zeile passt.
+            if (hintsData[i].formula) {
+                hintState.wide[i] = true;
+                const container = document.getElementById(`help-card-container-${i}`);
+                if (container) container.classList.add('help-card-container-wide');
+            }
+
+            // Hinweis 1 & 2: nach Aufdeckzeit erscheint der "Tipp im Tool anwenden"-Button
+            if (hintActions[i]) startApplyRevealTimer(i);
+
+            const nextIdx = i + 1;
+            if (hintsData[nextIdx] && hintState.timeLeft[nextIdx] === 0 && hintState.locked[nextIdx]) {
+                startHintCountdown(nextIdx);
+            }
+        };
+
+        function startHintCountdown(i, seconds = HINT_WAIT_SECONDS) {
+            if (hintState.intervalId[i]) clearInterval(hintState.intervalId[i]);
+            hintState.timeLeft[i] = seconds;
+
+            const initEl = document.getElementById(`help-timer-${i}`);
+            if (initEl) { initEl.textContent = 'Warten: ' + seconds + 's'; initEl.classList.remove('ready'); }
+
+            hintState.intervalId[i] = setInterval(() => {
+                hintState.timeLeft[i]--;
+
+                // UI nur aktualisieren, falls der Hilfebereich gerade geöffnet ist
+                const timerEl = document.getElementById(`help-timer-${i}`);
+                if (timerEl) timerEl.textContent = 'Warten: ' + hintState.timeLeft[i] + 's';
+
+                if (hintState.timeLeft[i] <= 0) {
+                    clearInterval(hintState.intervalId[i]);
+                    hintState.intervalId[i] = null;
+                    hintState.locked[i] = false;
+                    if (timerEl) {
+                        timerEl.textContent = 'Bereit!';
+                        timerEl.classList.add('ready');
+                        const card = document.getElementById(`help-card-${i}`);
+                        card.classList.remove('locked');
+                        const icon = card.querySelector('.help-card-front .help-icon');
+                        icon.textContent = '🔓';
+                        icon.classList.add('pop');
+                    }
+                }
+            }, 1000);
+        }
+
+        // Setzt nach Ablauf der Aufdeckzeit den "Tipp im Tool anwenden"-Button für
+        // Hinweis i sichtbar (nur relevant für Hinweis 1 & 2).
+        function startApplyRevealTimer(i) {
+            setTimeout(() => {
+                hintState.applyReady[i] = true;
+                const card = document.getElementById(`help-card-${i}`);
+                if (!card) return; // Hilfebereich aktuell geschlossen -> wird bei nächstem Öffnen korrekt gerendert
+                const back = card.querySelector('.help-card-back');
+                if (back && !back.querySelector('.help-apply-btn')) {
+                    back.insertAdjacentHTML('beforeend', buildApplyButtonHtml(i));
+                }
+            }, HINT_APPLY_REVEAL_SECONDS * 1000);
+        }
+
+        // Klick auf "Tipp im Tool anwenden": führt die Aktion aus. Nur falls dabei
+        // tatsächlich etwas im Tool verändert wurde (Punkt/Dreieck ergänzt), wird
+        // danach der nächste noch nicht umgedrehte Hinweis für 30s neu gesperrt.
+        // Hat die Aktion nichts verändert (z. B. "Keine Hilfe nötig"), passiert sonst nichts.
+        window.applyToolHint = (i) => {
+            const action = hintActions[i];
+            if (!action) return;
+            const didChangeSomething = action();
+            if (didChangeSomething) relockNextUnflippedHint(i);
+        };
+
+        // Sucht ab fromIndex den nächsten Hinweis, der noch nicht umgedreht wurde
+        // (egal ob er gerade noch läuft oder bereits entsperrt/"bereit" war, aber
+        // vom Lernenden noch nicht angesehen wurde) und sperrt ihn für 30s neu.
+        function relockNextUnflippedHint(fromIndex) {
+            for (let j = fromIndex + 1; j < hintsData.length; j++) {
+                if (hintState.flipped[j]) continue; // bereits umgedreht -> überspringen
+
+                if (!hintState.locked[j]) {
+                    // War schon entsperrt ("bereit"), aber noch nicht angesehen -> erneut sperren
+                    hintState.locked[j] = true;
+                    const card = document.getElementById(`help-card-${j}`);
+                    if (card) {
+                        card.classList.add('locked');
+                        const icon = card.querySelector('.help-card-front .help-icon');
+                        if (icon) { icon.textContent = '🔒'; icon.classList.remove('pop'); }
+                    }
+                }
+                startHintCountdown(j, HINT_APPLY_RESET_SECONDS);
+                return;
+            }
+        }
+
+        let helpFeedbackTimeout = null;
+        function showHintFeedback(message, isSuccess = true) {
+            const el = document.getElementById('help-feedback');
+            if (!el) return;
+            el.textContent = message;
+            el.classList.toggle('info', !isSuccess);
+            el.classList.add('show');
+            if (helpFeedbackTimeout) clearTimeout(helpFeedbackTimeout);
+            helpFeedbackTimeout = setTimeout(() => el.classList.remove('show'), 4000);
+        }
+
+        // Kandidaten-Koordinaten für den dritten Dreieckspunkt (siehe Hinweis 1 & 2)
+        const HINT_CANDIDATE_POINTS = [{ x: 160, y: 80 }, { x: 200, y: 330 }];
+
+        function findPointById(id) {
+            return pointsGroup.children.find(p => p.userData.id === id) || null;
+        }
+        function findPointAt(x, y) {
+            return pointsGroup.children.find(p => p.position.x === x && p.position.y === y) || null;
+        }
+        function triangleHasPoints(...points) {
+            return trianglesGroup.children.some(g => g.userData.pts && points.every(pt => g.userData.pts.includes(pt)));
+        }
+
+        // Hinweis 1: ergänzt zufällig einen der beiden möglichen dritten Punkte –
+        // aber nur, falls noch keiner der beiden (an seiner Koordinate) existiert.
+        // Rückgabewert: true, falls dabei tatsächlich ein Punkt ergänzt wurde.
+        function applyHint1() {
+            const alreadyExists = HINT_CANDIDATE_POINTS.some(c => findPointAt(c.x, c.y));
+            if (alreadyExists) { showHintFeedback('Keine Hilfe im Tool nötig ✅'); return false; }
+            const choice = HINT_CANDIDATE_POINTS[Math.floor(Math.random() * HINT_CANDIDATE_POINTS.length)];
+            const p = spawnPoint(choice.x, choice.y, getNextPointName());
+            history.push({ type: 'addPoint', obj: p });
+            showHintFeedback(`Punkt (${choice.x}|${choice.y}) wurde ergänzt.`);
+            return true;
+        }
+
+        // Hinweis 2: legt das Dreieck S-E-(P oder Q) an, falls einer der beiden
+        // Kandidaten-Punkte existiert und noch nicht entsprechend verbunden ist.
+        // Rückgabewert: true, falls dabei tatsächlich ein Dreieck ergänzt wurde.
+        function applyHint2() {
+            const sPoint = findPointById('S'), ePoint = findPointById('E');
+            for (const c of HINT_CANDIDATE_POINTS) {
+                const pt = findPointAt(c.x, c.y);
+                if (pt && triangleHasPoints(sPoint, ePoint, pt)) {
+                    showHintFeedback('Keine Hilfe im Tool nötig ✅');
+                    return false;
+                }
+            }
+            const existing = HINT_CANDIDATE_POINTS.map(c => findPointAt(c.x, c.y)).find(pt => pt);
+            if (existing) {
+                createTriangle(sPoint, ePoint, existing);
+                showHintFeedback('Dreieck mit S und E wurde ergänzt.');
+                return true;
+            }
+            showHintFeedback('Es existiert noch kein passender dritter Punkt (P oder Q).', false);
+            return false;
+        }
 
         const mapConfig = {
             sPx: { x: 660, y: 394 }, s2D: { x: 160, y: 330 },
@@ -407,6 +762,27 @@
             }
         };
 
+        // Wählt den Namen einer neuen Seite: bevorzugt der Kleinbuchstabe des
+        // gegenüberliegenden Punkts. Ist dieser schon für eine andere Seite vergeben,
+        // wird der nächste freie Buchstabe genommen (alphabetisch weiter, nach z wieder
+        // ab a), der weder als Seitenname noch als Großbuchstabe eines Punkts vorkommt.
+        function pickSideName(oppId) {
+            const usedBySides = new Set([...sideRegistry.values()].map(e => e.name));
+            const preferred = oppId.charAt(0).toLowerCase();
+            if (!usedBySides.has(preferred)) return preferred;
+
+            const usedByPoints = new Set(pointsGroup.children.map(p => p.userData.id.charAt(0).toLowerCase()));
+            const start = preferred.charCodeAt(0) - 97;
+            for (let k = 1; k < 26; k++) {
+                const letter = String.fromCharCode(97 + (start + k) % 26);
+                if (!usedBySides.has(letter) && !usedByPoints.has(letter)) return letter;
+            }
+            // Fallback (alle 26 Buchstaben belegt): Index anhängen
+            let n = 2;
+            while (usedBySides.has(preferred + n)) n++;
+            return preferred + n;
+        }
+
         function createTriangle(pt1, pt2, pt3) {
             const p1 = pt1.position, p2 = pt2.position, p3 = pt3.position;
             const group = new THREE.Group();
@@ -430,7 +806,8 @@
             }
 
             // Jede Seite wird über das Paar ihrer Endpunkte identifiziert (nicht über
-            // den gegenüberliegenden Punkt). 'z' ist ausschließlich die Strecke S–E.
+            // den gegenüberliegenden Punkt) und nach dem gegenüberliegenden Punkt
+            // benannt (Kleinbuchstabe). Das gilt auch für die Strecke S–E.
             const sides = [
                 { pa: pt2, pb: pt3, opp: pt1 },
                 { pa: pt1, pb: pt3, opp: pt2 },
@@ -439,10 +816,9 @@
             sides.forEach(s => {
                 const idA = s.pa.userData.id, idB = s.pb.userData.id;
                 const key = [idA, idB].sort().join('-');
-                if (sideRegistry.has(key)) return; // Seite ist bereits benannt (Anti-Redundanz)
+                if (sideRegistry.has(key)) return; // Seite existiert schon -> bisherige Beschriftung bleibt
 
-                const isSE = (idA === 'S' || idB === 'S') && (idA === 'E' || idB === 'E');
-                const txt = isSE ? 'z' : s.opp.userData.id.toLowerCase();
+                const txt = pickSideName(s.opp.userData.id);
 
                 const mid = new THREE.Vector3().addVectors(s.pa.position, s.pb.position).multiplyScalar(0.5);
                 const div = document.createElement('div');
